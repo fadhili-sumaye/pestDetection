@@ -6,7 +6,7 @@ package com.example.pestdetection;
  */
 public final class ApiConstants {
 
-  public static final String DEFAULT_API_BASE_URL = "http://10.0.2.2:5000";
+  public static final String DEFAULT_API_BASE_URL = "https://sumaye-pest-detection.hf.space";
 
   private ApiConstants() {
   }
