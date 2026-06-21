@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Palette (Organic Greens) -->
+    <color name="primary_green">#2E7D32</color>
+    <color name="primary_green_dark">#1B5E20</color>
+    <color name="primary_green_light">#E8F5E9</color>
+    
+    <!-- Accent Palette -->
+    <color name="accent_orange">#F57C00</color>
+    <color name="accent_yellow">#FFB300</color>
+    
+    <!-- Neutral Palette -->
+    <color name="bg_soft_white">#F8F9FA</color>
+    <color name="text_main">#212121</color>
+    <color name="text_hint">#757575</color>
+    <color name="surface_card">#FFFFFF</color>
+    
+    <!-- Standard Colors -->
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+</resources>

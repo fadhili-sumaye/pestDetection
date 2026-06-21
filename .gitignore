@@ -1,0 +1,37 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Backend runtime uploads (keep folder via backend/uploads/.gitkeep)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Python cache & build files
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+
+# Large datasets
+**/datasets/
+
+# Large model weights (.pt files should not be stored in Git)
+**/*.pt
+**/*.tmp
+backend/best_ip102.pt
+backend/best_cereal.pt
+
+# Scratch files & local developer shortcuts
+scratch/
+*.lnk
