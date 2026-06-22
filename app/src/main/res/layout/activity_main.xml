@@ -128,7 +128,7 @@
                             android:id="@+id/etServerUrl"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="http://10.0.2.2:5000/predict"
+                            android:text="https://sumaye-pest-detection.hf.space/predict"
                             android:textColor="@color/text_main"
                             android:textSize="14sp"
                             android:inputType="textUri" />
@@ -138,7 +138,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="Emulator: 10.0.2.2:5000 | Phone: your PC IP | Cloud: your deployed HTTPS URL"
+                        android:text="Default cloud backend is active. Change URL to connect to a custom server."
                         android:textColor="@color/text_hint"
                         android:textSize="11sp" />
 
