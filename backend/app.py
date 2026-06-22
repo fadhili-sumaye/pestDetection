@@ -10,7 +10,7 @@ import urllib.request
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_FOLDER = BASE_DIR / "uploads"
-MODEL_FILE = BASE_DIR / "best.pt"
+MODEL_FILE = BASE_DIR / "best_cereal.pt"
 MODEL_IP102_FILE = BASE_DIR / "best_ip102.pt"
 IP102_URL = "https://huggingface.co/underdogquality/yolo11s-pest-detection/resolve/main/best.pt"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
