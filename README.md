@@ -2,7 +2,7 @@
 title: Pest Detection API
 emoji: 🌾
 colorFrom: green
-colorTo: emerald
+colorTo: gray
 sdk: docker
 app_port: 7860
 pinned: false
