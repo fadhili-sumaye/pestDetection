@@ -32,6 +32,13 @@ public class MainActivity extends AppCompatActivity {
     Uri imageUri;
     EditText etServerUrl;
 
+    // View references for enhanced UX
+    ScrollView mainScrollView;
+    TextView tvImagePlaceholder;
+    View loadingOverlay;
+    ProgressBar progressBar;
+    Button btnSelect, btnCamera, btnUpload;
+
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
 
@@ -40,6 +47,12 @@ public class MainActivity extends AppCompatActivity {
                 if (result.getResultCode() == RESULT_OK && result.getData() != null) {
                     imageUri = result.getData().getData();
                     imageView.setImageURI(imageUri);
+                    if (tvImagePlaceholder != null) {
+                        tvImagePlaceholder.setVisibility(View.GONE);
+                    }
+                    if (btnUpload != null) {
+                        btnUpload.setEnabled(true);
+                    }
                 }
             });
 
@@ -47,6 +60,12 @@ public class MainActivity extends AppCompatActivity {
             registerForActivityResult(new ActivityResultContracts.TakePicture(), success -> {
                 if (success) {
                     imageView.setImageURI(imageUri);
+                    if (tvImagePlaceholder != null) {
+                        tvImagePlaceholder.setVisibility(View.GONE);
+                    }
+                    if (btnUpload != null) {
+                        btnUpload.setEnabled(true);
+                    }
                 }
             });
 
@@ -64,10 +83,14 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        mainScrollView = findViewById(R.id.mainScrollView);
         imageView = findViewById(R.id.imageView);
-        Button btnSelect = findViewById(R.id.btnSelect);
-        Button btnCamera = findViewById(R.id.btnCamera);
-        Button btnUpload = findViewById(R.id.btnUpload);
+        tvImagePlaceholder = findViewById(R.id.tvImagePlaceholder);
+        loadingOverlay = findViewById(R.id.loadingOverlay);
+        progressBar = findViewById(R.id.progressBar);
+        btnSelect = findViewById(R.id.btnSelect);
+        btnCamera = findViewById(R.id.btnCamera);
+        btnUpload = findViewById(R.id.btnUpload);
         resultText = findViewById(R.id.resultText);
         treatmentText = findViewById(R.id.treatmentText);
         tvConnectionStatus = findViewById(R.id.tvConnectionStatus);
@@ -80,6 +103,10 @@ public class MainActivity extends AppCompatActivity {
         View settingsContent = findViewById(R.id.settingsContent);
         ImageView settingsToggleArrow = findViewById(R.id.settingsToggleArrow);
         Button btnTestConnection = findViewById(R.id.btnTestConnection);
+
+        if (btnUpload != null) {
+            btnUpload.setEnabled(false); // Initially disable upload button
+        }
 
         etServerUrl.setText(ApiConfig.getPredictUrl(this));
 
@@ -117,7 +144,19 @@ public class MainActivity extends AppCompatActivity {
     protected void onStop() {
         super.onStop();
         if (imageView != null) {
-            imageView.setImageResource(R.mipmap.ic_launcher);
+            imageView.setImageDrawable(null);
+        }
+        if (tvImagePlaceholder != null) {
+            tvImagePlaceholder.setVisibility(View.VISIBLE);
+        }
+        if (btnUpload != null) {
+            btnUpload.setEnabled(false);
+        }
+        if (progressBar != null) {
+            progressBar.setVisibility(View.GONE);
+        }
+        if (loadingOverlay != null) {
+            loadingOverlay.setVisibility(View.GONE);
         }
         if (resultText != null) {
             resultText.setText("Waiting for scan...");
@@ -279,6 +318,13 @@ public class MainActivity extends AppCompatActivity {
             resultText.setText("Analyzing...");
             treatmentText.setText("Please wait...");
 
+            // Show loaders and disable action controls to avoid duplicate clicks
+            if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
+            if (loadingOverlay != null) loadingOverlay.setVisibility(View.VISIBLE);
+            if (btnUpload != null) btnUpload.setEnabled(false);
+            if (btnSelect != null) btnSelect.setEnabled(false);
+            if (btnCamera != null) btnCamera.setEnabled(false);
+
             // Scaled and compressed image bytes on-device
             byte[] imageBytes = getScaledAndCompressedImage(imageUri);
 
@@ -288,6 +334,18 @@ public class MainActivity extends AppCompatActivity {
                     resultText.setText(pest + " (" + (int) (confidence * 100) + "%)");
                     treatmentText.setText(treatment);
                     updateConnectionStatus(true, "Connected");
+
+                    // Hide loaders and re-enable buttons
+                    if (progressBar != null) progressBar.setVisibility(View.GONE);
+                    if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+                    if (btnUpload != null) btnUpload.setEnabled(true);
+                    if (btnSelect != null) btnSelect.setEnabled(true);
+                    if (btnCamera != null) btnCamera.setEnabled(true);
+
+                    // Auto-scroll layout to reveal results
+                    if (mainScrollView != null) {
+                        mainScrollView.post(() -> mainScrollView.fullScroll(View.FOCUS_DOWN));
+                    }
                 }
 
                 @Override
@@ -295,6 +353,14 @@ public class MainActivity extends AppCompatActivity {
                     resultText.setText("FAILED: " + message);
                     treatmentText.setText("Check server URL in Connection Settings");
                     updateConnectionStatus(false, message);
+
+                    // Hide loaders and re-enable buttons
+                    if (progressBar != null) progressBar.setVisibility(View.GONE);
+                    if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+                    if (btnUpload != null) btnUpload.setEnabled(true);
+                    if (btnSelect != null) btnSelect.setEnabled(true);
+                    if (btnCamera != null) btnCamera.setEnabled(true);
+
                     android.util.Log.e("PestScanner", "Connection Error to " + serverUrl + ": " + message);
                 }
             });
@@ -302,6 +368,13 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             e.printStackTrace();
             resultText.setText("Error: " + e.getMessage());
+
+            // Reset loaders and re-enable buttons on error
+            if (progressBar != null) progressBar.setVisibility(View.GONE);
+            if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+            if (btnUpload != null) btnUpload.setEnabled(true);
+            if (btnSelect != null) btnSelect.setEnabled(true);
+            if (btnCamera != null) btnCamera.setEnabled(true);
         }
     }
 

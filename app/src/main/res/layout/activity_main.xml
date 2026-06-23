@@ -3,6 +3,7 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mainScrollView"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_soft_white"
@@ -98,7 +99,8 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:clickable="true"
-                    android:focusable="true">
+                    android:focusable="true"
+                    android:background="?android:attr/selectableItemBackground">
 
                     <ImageView
                         android:layout_width="20dp"
@@ -196,14 +198,37 @@
                 android:id="@+id/imageView"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:scaleType="centerCrop"
-                android:src="@mipmap/ic_launcher" />
+                android:scaleType="centerCrop" />
 
-            <!-- Overlay for when no image is selected -->
+            <!-- Placeholder text when no image is selected -->
+            <TextView
+                android:id="@+id/tvImagePlaceholder"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:text="No crop image selected\nTap Gallery or Camera below"
+                android:textColor="@color/text_hint"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:padding="24dp" />
+
+            <!-- Semi-transparent overlay to dim image when analyzing -->
             <View
+                android:id="@+id/loadingOverlay"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="#1A000000" />
+                android:background="#99000000"
+                android:visibility="gone" />
+
+            <!-- Circular Loading Spinner -->
+            <ProgressBar
+                android:id="@+id/progressBar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:visibility="gone"
+                android:indeterminateTint="@color/primary_green" />
         </com.google.android.material.card.MaterialCardView>
 
         <!-- Action Buttons Section -->
