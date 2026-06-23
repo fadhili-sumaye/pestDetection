@@ -1,5 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.responses import PlainTextResponse
+from fastapi.middleware.cors import CORSMiddleware
 import os
 from pathlib import Path
 import threading
@@ -10,6 +11,7 @@ import json
 import io
 from PIL import Image
 from typing import Optional
+from collections import defaultdict
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_FILE = BASE_DIR / "pest_detection.db"
@@ -32,6 +34,17 @@ def init_db():
         )
     """)
     conn.commit()
+    
+    # Prune audit logs older than 30 days
+    try:
+        cursor.execute("DELETE FROM audit_logs WHERE timestamp < datetime('now', '-30 days')")
+        pruned_count = cursor.rowcount
+        conn.commit()
+        if pruned_count > 0:
+            print(f"[DB] Successfully pruned {pruned_count} audit log entries older than 30 days.")
+    except Exception as e:
+        print(f"[DB] Warning: Failed to prune audit logs: {e}")
+        
     conn.close()
 
 def log_audit(username: Optional[str], endpoint: str, status: str, details: str, ip_address: str):
@@ -50,6 +63,20 @@ def log_audit(username: Optional[str], endpoint: str, status: str, details: str,
 init_db()
 
 app = FastAPI(title="Pest Detection API")
+
+# Configure CORS Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# In-memory IP-based rate limiting
+RATE_LIMIT_WINDOW = 60  # 1 minute
+RATE_LIMIT_MAX_REQUESTS = 10
+request_history = defaultdict(list)
 
 model = None
 HAS_YOLO = False
@@ -221,6 +248,15 @@ async def predict(
     image: UploadFile = File(...)
 ):
     ip = request.client.host if request.client else "unknown"
+
+    # Rate limiting check (excludes development environments)
+    if ip not in ("127.0.0.1", "10.0.2.2", "localhost", "unknown"):
+        now = time.time()
+        request_history[ip] = [t for t in request_history[ip] if now - t < RATE_LIMIT_WINDOW]
+        if len(request_history[ip]) >= RATE_LIMIT_MAX_REQUESTS:
+            log_audit("anonymous", "/predict", "rate-limited", f"Rate limit exceeded (IP: {ip})", ip)
+            raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
+        request_history[ip].append(now)
 
     if not image.filename:
         log_audit("anonymous", "/predict", "failed", "No selected file", ip)

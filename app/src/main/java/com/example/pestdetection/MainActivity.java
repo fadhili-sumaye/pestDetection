@@ -139,6 +139,10 @@ public class MainActivity extends AppCompatActivity {
     private void saveServerUrlFromInput() {
         String newUrl = etServerUrl.getText().toString().trim();
         if (!newUrl.isEmpty()) {
+            if (!newUrl.startsWith("http://") && !newUrl.startsWith("https://")) {
+                newUrl = "http://" + newUrl;
+            }
+            newUrl = newUrl.replaceAll("\\s+", "");
             ApiConfig.savePredictUrl(this, newUrl);
             etServerUrl.setText(ApiConfig.getPredictUrl(this));
         }
@@ -272,11 +276,11 @@ public class MainActivity extends AppCompatActivity {
             saveServerUrlFromInput();
             final String serverUrl = ApiConfig.getPredictUrl(this);
 
-            InputStream inputStream = getContentResolver().openInputStream(imageUri);
-            byte[] imageBytes = getBytes(inputStream);
-
             resultText.setText("Analyzing...");
             treatmentText.setText("Please wait...");
+
+            // Scaled and compressed image bytes on-device
+            byte[] imageBytes = getScaledAndCompressedImage(imageUri);
 
             PestApiClient.getInstance().predict(serverUrl, imageBytes, new PestApiClient.PredictCallback() {
                 @Override
@@ -301,15 +305,41 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private byte[] getBytes(InputStream inputStream) throws Exception {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        int nRead;
-        byte[] data = new byte[16384];
-
-        while ((nRead = inputStream.read(data)) != -1) {
-            buffer.write(data, 0, nRead);
+    private byte[] getScaledAndCompressedImage(Uri uri) throws Exception {
+        InputStream input = getContentResolver().openInputStream(uri);
+        android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeStream(input);
+        if (input != null) {
+            input.close();
         }
 
-        return buffer.toByteArray();
+        if (bitmap == null) {
+            throw new Exception("Failed to decode image");
+        }
+
+        int maxSize = 1024;
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+
+        if (width > maxSize || height > maxSize) {
+            float ratio = (float) width / (float) height;
+            if (ratio > 1) {
+                width = maxSize;
+                height = (int) (maxSize / ratio);
+            } else {
+                height = maxSize;
+                width = (int) (maxSize * ratio);
+            }
+            android.graphics.Bitmap resizedBitmap = android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, true);
+            if (resizedBitmap != bitmap) {
+                bitmap.recycle();
+            }
+            bitmap = resizedBitmap;
+        }
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, outputStream);
+        byte[] bytes = outputStream.toByteArray();
+        bitmap.recycle();
+        return bytes;
     }
 }
