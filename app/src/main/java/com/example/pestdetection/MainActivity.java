@@ -37,6 +37,7 @@ public class MainActivity extends AppCompatActivity {
     View loadingOverlay;
     ProgressBar progressBar;
     Button btnSelect, btnCamera, btnUpload;
+    View resultCard;
 
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
@@ -83,6 +84,7 @@ public class MainActivity extends AppCompatActivity {
         btnSelect = findViewById(R.id.btnSelect);
         btnCamera = findViewById(R.id.btnCamera);
         btnUpload = findViewById(R.id.btnUpload);
+        resultCard = findViewById(R.id.resultCard);
         resultText = findViewById(R.id.resultText);
         treatmentText = findViewById(R.id.treatmentText);
         tvConnectionStatus = findViewById(R.id.tvConnectionStatus);
@@ -146,6 +148,9 @@ public class MainActivity extends AppCompatActivity {
         }
         if (loadingOverlay != null) {
             loadingOverlay.setVisibility(View.GONE);
+        }
+        if (resultCard != null) {
+            resultCard.setVisibility(View.GONE);
         }
         if (resultText != null) {
             resultText.setText("Waiting for scan...");
@@ -310,6 +315,7 @@ public class MainActivity extends AppCompatActivity {
             // Show loaders and disable action controls to avoid duplicate clicks
             if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
             if (loadingOverlay != null) loadingOverlay.setVisibility(View.VISIBLE);
+            if (resultCard != null) resultCard.setVisibility(View.GONE);
             if (btnUpload != null) btnUpload.setEnabled(false);
             if (btnSelect != null) btnSelect.setEnabled(false);
             if (btnCamera != null) btnCamera.setEnabled(false);
@@ -327,6 +333,7 @@ public class MainActivity extends AppCompatActivity {
                     // Hide loaders and re-enable buttons
                     if (progressBar != null) progressBar.setVisibility(View.GONE);
                     if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+                    if (resultCard != null) resultCard.setVisibility(View.VISIBLE);
                     if (btnUpload != null) btnUpload.setEnabled(true);
                     if (btnSelect != null) btnSelect.setEnabled(true);
                     if (btnCamera != null) btnCamera.setEnabled(true);
@@ -346,6 +353,7 @@ public class MainActivity extends AppCompatActivity {
                     // Hide loaders and re-enable buttons
                     if (progressBar != null) progressBar.setVisibility(View.GONE);
                     if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+                    if (resultCard != null) resultCard.setVisibility(View.VISIBLE);
                     if (btnUpload != null) btnUpload.setEnabled(true);
                     if (btnSelect != null) btnSelect.setEnabled(true);
                     if (btnCamera != null) btnCamera.setEnabled(true);
@@ -361,6 +369,7 @@ public class MainActivity extends AppCompatActivity {
             // Reset loaders and re-enable buttons on error
             if (progressBar != null) progressBar.setVisibility(View.GONE);
             if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+            if (resultCard != null) resultCard.setVisibility(View.VISIBLE);
             if (btnUpload != null) btnUpload.setEnabled(true);
             if (btnSelect != null) btnSelect.setEnabled(true);
             if (btnCamera != null) btnCamera.setEnabled(true);

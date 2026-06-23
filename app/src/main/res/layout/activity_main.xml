@@ -277,6 +277,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
+            android:visibility="gone"
             app:cardCornerRadius="20dp"
             app:cardElevation="4dp"
             app:cardBackgroundColor="@color/surface_card"
