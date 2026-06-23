@@ -198,37 +198,8 @@
                 android:id="@+id/imageView"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:scaleType="centerCrop" />
-
-            <!-- Placeholder container when no image is selected -->
-            <LinearLayout
-                android:id="@+id/placeholderContainer"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:orientation="vertical"
-                android:gravity="center">
-
-                <ImageView
-                    android:id="@+id/placeholderIcon"
-                    android:layout_width="64dp"
-                    android:layout_height="64dp"
-                    android:src="@mipmap/ic_launcher"
-                    android:contentDescription="App Icon"
-                    android:layout_marginBottom="12dp" />
-
-                <TextView
-                    android:id="@+id/tvImagePlaceholder"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:gravity="center"
-                    android:text="No crop image selected\nTap Gallery or Camera below"
-                    android:textColor="@color/text_hint"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:paddingStart="24dp"
-                    android:paddingEnd="24dp" />
-            </LinearLayout>
+                android:scaleType="centerCrop"
+                android:src="@mipmap/ic_launcher" />
 
             <!-- Semi-transparent overlay to dim image when analyzing -->
             <View

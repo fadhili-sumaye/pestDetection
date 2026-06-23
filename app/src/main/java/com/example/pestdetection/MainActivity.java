@@ -34,7 +34,6 @@ public class MainActivity extends AppCompatActivity {
 
     // View references for enhanced UX
     ScrollView mainScrollView;
-    View placeholderContainer;
     View loadingOverlay;
     ProgressBar progressBar;
     Button btnSelect, btnCamera, btnUpload;
@@ -47,9 +46,6 @@ public class MainActivity extends AppCompatActivity {
                 if (result.getResultCode() == RESULT_OK && result.getData() != null) {
                     imageUri = result.getData().getData();
                     imageView.setImageURI(imageUri);
-                    if (placeholderContainer != null) {
-                        placeholderContainer.setVisibility(View.GONE);
-                    }
                     if (btnUpload != null) {
                         btnUpload.setEnabled(true);
                     }
@@ -60,9 +56,6 @@ public class MainActivity extends AppCompatActivity {
             registerForActivityResult(new ActivityResultContracts.TakePicture(), success -> {
                 if (success) {
                     imageView.setImageURI(imageUri);
-                    if (placeholderContainer != null) {
-                        placeholderContainer.setVisibility(View.GONE);
-                    }
                     if (btnUpload != null) {
                         btnUpload.setEnabled(true);
                     }
@@ -85,7 +78,6 @@ public class MainActivity extends AppCompatActivity {
 
         mainScrollView = findViewById(R.id.mainScrollView);
         imageView = findViewById(R.id.imageView);
-        placeholderContainer = findViewById(R.id.placeholderContainer);
         loadingOverlay = findViewById(R.id.loadingOverlay);
         progressBar = findViewById(R.id.progressBar);
         btnSelect = findViewById(R.id.btnSelect);
@@ -144,10 +136,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onStop() {
         super.onStop();
         if (imageView != null) {
-            imageView.setImageDrawable(null);
-        }
-        if (placeholderContainer != null) {
-            placeholderContainer.setVisibility(View.VISIBLE);
+            imageView.setImageResource(R.mipmap.ic_launcher);
         }
         if (btnUpload != null) {
             btnUpload.setEnabled(false);
