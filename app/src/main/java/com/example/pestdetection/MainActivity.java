@@ -27,7 +27,8 @@ import androidx.core.content.FileProvider;
 public class MainActivity extends AppCompatActivity {
 
     ImageView imageView;
-    TextView resultText, treatmentText, tvConnectionStatus;
+    TextView resultText, treatmentText, tvConnectionStatus, tvAppSubtitle;
+    View statusBadgeContainer, statusIndicatorDot;
     Uri imageUri;
     EditText etServerUrl;
 
@@ -70,6 +71,9 @@ public class MainActivity extends AppCompatActivity {
         resultText = findViewById(R.id.resultText);
         treatmentText = findViewById(R.id.treatmentText);
         tvConnectionStatus = findViewById(R.id.tvConnectionStatus);
+        statusBadgeContainer = findViewById(R.id.statusBadgeContainer);
+        statusIndicatorDot = findViewById(R.id.statusIndicatorDot);
+        tvAppSubtitle = findViewById(R.id.tvAppSubtitle);
 
         etServerUrl = findViewById(R.id.etServerUrl);
         View settingsHeader = findViewById(R.id.settingsHeader);
@@ -112,7 +116,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
-        // Reset UI to default state when the user goes out of the application
         if (imageView != null) {
             imageView.setImageResource(R.mipmap.ic_launcher);
         }
@@ -194,19 +197,31 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateConnectionStatus(Boolean connected, String message) {
-        if (connected == null) {
-            tvConnectionStatus.setText("● " + message);
-            tvConnectionStatus.setTextColor(getColor(R.color.text_hint));
+        if (statusBadgeContainer == null || statusIndicatorDot == null || tvConnectionStatus == null) {
             return;
         }
 
-        if (connected) {
-            tvConnectionStatus.setText("● Server connected");
-            tvConnectionStatus.setTextColor(getColor(R.color.primary_green));
+        int colorBg, colorDotText;
+        String statusText;
+
+        if (connected == null) {
+            colorBg = getColor(R.color.status_gray_bg);
+            colorDotText = getColor(R.color.text_hint);
+            statusText = "Checking...";
+        } else if (connected) {
+            colorBg = getColor(R.color.primary_green_light);
+            colorDotText = getColor(R.color.primary_green);
+            statusText = "Online";
         } else {
-            tvConnectionStatus.setText("● Offline — " + message);
-            tvConnectionStatus.setTextColor(getColor(R.color.accent_orange));
+            colorBg = getColor(R.color.status_red_bg);
+            colorDotText = getColor(R.color.status_red_text);
+            statusText = "Offline";
         }
+
+        statusBadgeContainer.setBackgroundTintList(android.content.res.ColorStateList.valueOf(colorBg));
+        statusIndicatorDot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(colorDotText));
+        tvConnectionStatus.setTextColor(colorDotText);
+        tvConnectionStatus.setText(statusText);
     }
 
     private void openGallery() {

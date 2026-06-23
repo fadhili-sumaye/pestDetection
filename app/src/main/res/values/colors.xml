@@ -18,4 +18,9 @@
     <!-- Standard Colors -->
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
+
+    <!-- Status Pill Colors -->
+    <color name="status_red_text">#D32F2F</color>
+    <color name="status_red_bg">#FFEBEE</color>
+    <color name="status_gray_bg">#ECEFF1</color>
 </resources>

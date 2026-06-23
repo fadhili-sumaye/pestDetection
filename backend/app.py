@@ -1,21 +1,53 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 import os
-import shutil
 from pathlib import Path
-from werkzeug.utils import secure_filename
 import threading
 import time
 import urllib.request
+import sqlite3
+import json
+import io
+from PIL import Image
+from typing import Optional
 
 BASE_DIR = Path(__file__).resolve().parent
-UPLOAD_FOLDER = BASE_DIR / "uploads"
+DB_FILE = BASE_DIR / "pest_detection.db"
 MODEL_FILE = BASE_DIR / "best_cereal.pt"
 MODEL_IP102_FILE = BASE_DIR / "best_ip102.pt"
 IP102_URL = "https://huggingface.co/underdogquality/yolo11s-pest-detection/resolve/main/best.pt"
-ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
 
-UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+def init_db():
+    conn = sqlite3.connect(str(DB_FILE))
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            endpoint TEXT NOT NULL,
+            status TEXT NOT NULL,
+            details TEXT,
+            ip_address TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def log_audit(username: Optional[str], endpoint: str, status: str, details: str, ip_address: str):
+    try:
+        conn = sqlite3.connect(str(DB_FILE))
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO audit_logs (username, endpoint, status, details, ip_address) VALUES (?, ?, ?, ?, ?)",
+            (username, endpoint, status, details, ip_address)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Failed to write audit log: {e}")
+
+init_db()
 
 app = FastAPI(title="Pest Detection API")
 
@@ -37,7 +69,7 @@ def download_ip102_model():
             temp_file = MODEL_IP102_FILE.with_suffix(".tmp")
             
             with urllib.request.urlopen(req, timeout=60) as response, open(temp_file, 'wb') as out_file:
-                chunk_size = 1024 * 1024  # 1MB chunks
+                chunk_size = 1024 * 1024
                 bytes_downloaded = 0
                 while True:
                     chunk = response.read(chunk_size)
@@ -77,14 +109,12 @@ def init_model():
     try:
         from ultralytics import YOLO
 
-        # 1. Look for IP102 model
         if MODEL_IP102_FILE.exists():
             model = YOLO(str(MODEL_IP102_FILE))
             HAS_YOLO = True
             print(f"Success: Loaded IP102 YOLO model from {MODEL_IP102_FILE} ({len(model.names)} classes)")
             return
 
-        # 2. Try loading a fallback model to serve requests in the meantime
         loaded_fallback = False
         if MODEL_FILE.exists():
             model = YOLO(str(MODEL_FILE))
@@ -99,15 +129,14 @@ def init_model():
                 print(f"Success: Loaded fallback YOLO model from {fallback_path} ({len(model.names)} classes)")
                 loaded_fallback = True
 
-        # 3. Always trigger background download of IP102 if it is missing
-        print("IP102 model is missing. Initiating background download for IP102 model to include all 102 pests...")
+        print("IP102 model is missing. Initiating background download...")
         threading.Thread(target=download_ip102_model, daemon=True).start()
     except Exception as e:
         if not HAS_YOLO:
             HAS_YOLO = False
             print(f"Warning: Failed to load YOLO model: {e}. Using dummy detection.")
         else:
-            print(f"Warning: Fallback model loaded, but error occurred during startup sequence: {e}")
+            print(f"Warning: Fallback model loaded, but error occurred: {e}")
 
 init_model()
 
@@ -132,7 +161,7 @@ def get_ip102_category_and_treatment(cls_id, raw_name):
     elif 73 <= cls_id <= 91:
         return "Citrus Pest", "Citrus Pest: Prune infested shoots, encourage beneficial predators (e.g., predatory mites or wasps), use horticultural oil sprays, and apply targeted systemic treatments if necessary."
     elif 92 <= cls_id <= 101:
-        return "Mango Pest", "Mango Pest: Maintain orchard sanitation, prune dense branches to improve sunlight penetration, use sticky bands on tree trunks, and apply specific crop protection sprays during flushing/flowering."
+        return "Mango Pest", "Mango Pest: Maintain orchard sanitation, prune dense branches to improve sunlight penetration, use sticky bands on tree trunks, and apply specific crop protection sprays during flowering."
     return "Unknown Pest", "Consult with a local agricultural officer for specific treatment advice."
 
 PEST_TREATMENT = {
@@ -158,6 +187,8 @@ PEST_TREATMENT = {
     "default": "Consult with a local agricultural officer for specific treatment advice.",
 }
 
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
+
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -169,13 +200,13 @@ def index():
     return f"Pest Detection API is running! YOLO Model: {model_info}"
 
 @app.get("/health")
-def health():
-    model_type = "None"
+def health(request: Request):
     classes_count = 0
+    model_type = "None"
     if HAS_YOLO and model:
         classes_count = len(model.names)
         model_type = "IP102 (102 pests)" if classes_count == 102 else "Cereal Pests (10 pests)"
-    
+        
     return {
         "status": "ok",
         "yolo": HAS_YOLO,
@@ -185,25 +216,37 @@ def health():
     }
 
 @app.post("/predict")
-async def predict(image: UploadFile = File(...)):
+async def predict(
+    request: Request,
+    image: UploadFile = File(...)
+):
+    ip = request.client.host if request.client else "unknown"
+
     if not image.filename:
+        log_audit("anonymous", "/predict", "failed", "No selected file", ip)
         raise HTTPException(status_code=400, detail="No selected file")
 
     if not allowed_file(image.filename):
+        log_audit("anonymous", "/predict", "failed", f"File type not allowed: {image.filename}", ip)
         raise HTTPException(status_code=400, detail="File type not allowed")
 
-    filename = secure_filename(image.filename)
-    filepath = UPLOAD_FOLDER / filename
-
     try:
-        with open(filepath, "wb") as buffer:
-            shutil.copyfileobj(image.file, buffer)
+        contents = await image.read()
+        
+        if len(contents) > 5 * 1024 * 1024:
+            log_audit("anonymous", "/predict", "failed", "File too large (exceeded 5MB)", ip)
+            raise HTTPException(status_code=413, detail="File size exceeds the 5MB limit.")
+            
+        img = Image.open(io.BytesIO(contents)).convert("RGB")
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+        log_audit("anonymous", "/predict", "error", f"Image parsing error: {str(e)}", ip)
+        raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
 
     if HAS_YOLO:
         try:
-            results = model.predict(source=str(filepath), save=False, conf=0.4)
+            results = model.predict(source=img, save=False, conf=0.4)
 
             detections = []
             for r in results:
@@ -226,10 +269,10 @@ async def predict(image: UploadFile = File(...)):
                         "confidence": round(conf, 2),
                         "treatment": treatment,
                     })
-            
-            print(f"Detections for {filename}: {detections}")
 
             if not detections:
+                log_details = json.dumps({"pest": "None", "confidence": 0.0, "filename": image.filename})
+                log_audit("anonymous", "/predict", "success", log_details, ip)
                 return {
                     "status": "success",
                     "pest_detected": "None",
@@ -237,6 +280,13 @@ async def predict(image: UploadFile = File(...)):
                     "treatment": PEST_TREATMENT["none"],
                     "message": "No pests detected",
                 }
+
+            log_details = json.dumps({
+                "pest": detections[0]["pest_detected"],
+                "confidence": detections[0]["confidence"],
+                "filename": image.filename
+            })
+            log_audit("anonymous", "/predict", "success", log_details, ip)
 
             return {
                 "status": "success",
@@ -247,8 +297,11 @@ async def predict(image: UploadFile = File(...)):
                 "all_detections": detections,
             }
         except Exception as e:
+            log_audit("anonymous", "/predict", "error", f"YOLO Inference error: {str(e)}", ip)
             raise HTTPException(status_code=500, detail=f"Inference error: {str(e)}")
     else:
+        log_details = json.dumps({"pest": "Aphids (Mock)", "confidence": 0.95, "filename": image.filename})
+        log_audit("anonymous", "/predict", "success", log_details, ip)
         return {
             "status": "success",
             "pest_detected": "Aphids (Mock)",
@@ -259,6 +312,5 @@ async def predict(image: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-
     port = int(os.environ.get("PORT", 5000))
     uvicorn.run(app, host="0.0.0.0", port=port)

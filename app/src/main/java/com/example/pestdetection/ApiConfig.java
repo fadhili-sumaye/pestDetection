@@ -27,6 +27,18 @@ public final class ApiConfig {
         return toHealthUrl(getPredictUrl(context));
     }
 
+    public static String getLoginUrl(Context context) {
+        return toAuthUrl(getPredictUrl(context), "/auth/login");
+    }
+
+    public static String getRegisterUrl(Context context) {
+        return toAuthUrl(getPredictUrl(context), "/auth/register");
+    }
+
+    public static String getHistoryUrl(Context context) {
+        return toAuthUrl(getPredictUrl(context), "/history");
+    }
+
     public static void savePredictUrl(Context context, String url) {
         if (url == null || url.trim().isEmpty()) {
             return;
@@ -58,5 +70,12 @@ public final class ApiConfig {
             return predictUrl.substring(0, predictUrl.length() - "/predict".length()) + "/health";
         }
         return predictUrl + "/health";
+    }
+
+    private static String toAuthUrl(String predictUrl, String endpoint) {
+        if (predictUrl.endsWith("/predict")) {
+            return predictUrl.substring(0, predictUrl.length() - "/predict".length()) + endpoint;
+        }
+        return predictUrl + endpoint;
     }
 }
