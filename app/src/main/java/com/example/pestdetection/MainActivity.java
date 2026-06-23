@@ -38,6 +38,8 @@ public class MainActivity extends AppCompatActivity {
     ProgressBar progressBar;
     Button btnSelect, btnCamera, btnUpload;
     View resultCard;
+    View settingsCard;
+    int titleClickCount = 0;
 
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
@@ -85,6 +87,21 @@ public class MainActivity extends AppCompatActivity {
         btnCamera = findViewById(R.id.btnCamera);
         btnUpload = findViewById(R.id.btnUpload);
         resultCard = findViewById(R.id.resultCard);
+        settingsCard = findViewById(R.id.settingsCard);
+
+        TextView tvAppName = findViewById(R.id.tvAppName);
+        if (tvAppName != null) {
+            tvAppName.setOnClickListener(v -> {
+                titleClickCount++;
+                if (titleClickCount >= 5) {
+                    if (settingsCard != null) {
+                        settingsCard.setVisibility(View.VISIBLE);
+                        Toast.makeText(MainActivity.this, "Developer Mode: Server settings unlocked", Toast.LENGTH_SHORT).show();
+                    }
+                    titleClickCount = 0;
+                }
+            });
+        }
         resultText = findViewById(R.id.resultText);
         treatmentText = findViewById(R.id.treatmentText);
         tvConnectionStatus = findViewById(R.id.tvConnectionStatus);
