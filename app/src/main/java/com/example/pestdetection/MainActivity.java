@@ -386,7 +386,7 @@ public class MainActivity extends AppCompatActivity {
                     if ("Pest Not Recognized".equalsIgnoreCase(pest)) {
                         resultText.setText("Pest Not Recognized");
                         treatmentText.setText(treatment);
-                        if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.GONE);
+                        if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.VISIBLE);
 
                         // Start background polling for auto-reported unrecognized pest
                         if (reportId != -1) {
@@ -396,11 +396,11 @@ public class MainActivity extends AppCompatActivity {
                     } else if ("None".equalsIgnoreCase(pest)) {
                         resultText.setText("No Pests Detected");
                         treatmentText.setText(treatment);
-                        if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.VISIBLE);
+                        if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.GONE);
                     } else {
                         resultText.setText(pest + " (" + (int) (confidence * 100) + "%)");
                         treatmentText.setText(treatment);
-                        if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.VISIBLE);
+                        if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.GONE);
                     }
                     updateConnectionStatus(true, "Connected");
 
