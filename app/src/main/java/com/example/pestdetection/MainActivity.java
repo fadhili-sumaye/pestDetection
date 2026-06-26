@@ -194,6 +194,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        stopPolling();
         if (connectivityManager != null && networkCallback != null) {
             connectivityManager.unregisterNetworkCallback(networkCallback);
         }
@@ -336,6 +337,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         try {
+            stopPolling(); // Cancel any existing polling tasks when starting a new upload
             saveServerUrlFromInput();
             final String serverUrl = ApiConfig.getPredictUrl(this);
 
@@ -352,14 +354,45 @@ public class MainActivity extends AppCompatActivity {
 
             // Scaled and compressed image bytes on-device
             byte[] imageBytes = getScaledAndCompressedImage(imageUri);
+            String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
 
-            PestApiClient.getInstance().predict(serverUrl, imageBytes, new PestApiClient.PredictCallback() {
+            PestApiClient.getInstance().predict(serverUrl, deviceId, imageBytes, new PestApiClient.PredictCallback() {
                 @Override
-                public void onSuccess(String pest, double confidence, String treatment) {
+                public void onSuccess(String pest, double confidence, String treatment, int reportId) {
+                    // Hide loaders and re-enable buttons
+                    if (progressBar != null) progressBar.setVisibility(View.GONE);
+                    if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+                    if (btnSelect != null) btnSelect.setEnabled(true);
+                    if (btnCamera != null) btnCamera.setEnabled(true);
+
                     if ("Invalid Image".equalsIgnoreCase(pest)) {
-                        resultText.setText("Invalid Image");
-                        treatmentText.setText("This is not a pest. Please select or capture a crop leaf or pest for detection.");
+                        // Clear image preview and states to block further processing
+                        imageView.setImageDrawable(null);
+                        imageUri = null;
+                        if (btnUpload != null) btnUpload.setEnabled(false);
+                        if (resultCard != null) resultCard.setVisibility(View.GONE);
+
+                        new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("Invalid Image")
+                                .setMessage("Invalid Image: Please submit an image containing a crop pest or infected plant.")
+                                .setPositiveButton("OK", null)
+                                .show();
+                        return;
+                    }
+
+                    if (btnUpload != null) btnUpload.setEnabled(true);
+                    if (resultCard != null) resultCard.setVisibility(View.VISIBLE);
+
+                    if ("Pest Not Recognized".equalsIgnoreCase(pest)) {
+                        resultText.setText("Pest Not Recognized");
+                        treatmentText.setText(treatment);
                         if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.GONE);
+
+                        // Start background polling for auto-reported unrecognized pest
+                        if (reportId != -1) {
+                            activeReportId = reportId;
+                            startPolling();
+                        }
                     } else if ("None".equalsIgnoreCase(pest)) {
                         resultText.setText("No Pests Detected");
                         treatmentText.setText(treatment);
@@ -370,14 +403,6 @@ public class MainActivity extends AppCompatActivity {
                         if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.VISIBLE);
                     }
                     updateConnectionStatus(true, "Connected");
-
-                    // Hide loaders and re-enable buttons
-                    if (progressBar != null) progressBar.setVisibility(View.GONE);
-                    if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
-                    if (resultCard != null) resultCard.setVisibility(View.VISIBLE);
-                    if (btnUpload != null) btnUpload.setEnabled(true);
-                    if (btnSelect != null) btnSelect.setEnabled(true);
-                    if (btnCamera != null) btnCamera.setEnabled(true);
 
                     // Auto-scroll layout to reveal results
                     if (mainScrollView != null) {
@@ -502,7 +527,7 @@ public class MainActivity extends AppCompatActivity {
 
         PestApiClient.getInstance().reportUnrecognized(reportUrl, deviceId, imageBytes, new PestApiClient.PredictCallback() {
             @Override
-            public void onSuccess(String pest, double confidence, String message) {
+            public void onSuccess(String pest, double confidence, String message, int reportId) {
                 if (progressBar != null) progressBar.setVisibility(View.GONE);
                 if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
                 if (btnReportUnrecognized != null) {
@@ -613,5 +638,106 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(MainActivity.this, "Failed to fetch history: " + error, Toast.LENGTH_LONG).show();
             }
         });
+    }
+
+    private android.os.Handler pollingHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable pollingRunnable;
+    private int activeReportId = -1;
+
+    private void startPolling() {
+        if (pollingRunnable != null) {
+            pollingHandler.removeCallbacks(pollingRunnable);
+        }
+        pollingRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (activeReportId == -1) return;
+
+                String serverUrl = etServerUrl.getText().toString().trim();
+                String statusUrl;
+                if (serverUrl.endsWith("/predict")) {
+                    statusUrl = serverUrl.replace("/predict", "/reports/status");
+                } else {
+                    statusUrl = serverUrl + "/reports/status";
+                }
+
+                String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+
+                PestApiClient.getInstance().getReportsStatus(statusUrl, deviceId, new PestApiClient.ReportsCallback() {
+                    @Override
+                    public void onSuccess(String jsonResult) {
+                        try {
+                            JSONObject json = new JSONObject(jsonResult);
+                            JSONArray reports = json.optJSONArray("reports");
+                            if (reports != null) {
+                                boolean foundAndResolved = false;
+                                String pestName = "";
+                                String treatment = "";
+
+                                for (int i = 0; i < reports.length(); i++) {
+                                    JSONObject r = reports.getJSONObject(i);
+                                    if (r.optInt("id", -1) == activeReportId) {
+                                        String status = r.optString("status", "pending");
+                                        if ("resolved".equalsIgnoreCase(status)) {
+                                            foundAndResolved = true;
+                                            pestName = r.optString("pest_name", "Unknown Pest");
+                                            treatment = r.optString("treatment", "No advice available.");
+                                        }
+                                        break;
+                                    }
+                                }
+
+                                if (foundAndResolved) {
+                                    final String finalPest = pestName;
+                                    final String finalTreatment = treatment;
+                                    stopPolling();
+
+                                    // Update UI views
+                                    resultText.setText(finalPest);
+                                    treatmentText.setText(finalTreatment);
+
+                                    // Show popup notification
+                                    new AlertDialog.Builder(MainActivity.this)
+                                            .setTitle("Pest Identified!")
+                                            .setMessage("Our agricultural experts have identified the unrecognized pest.\n\n" +
+                                                    "Identified Pest: " + finalPest + "\n\n" +
+                                                    "Treatment Advice:\n" + finalTreatment)
+                                            .setPositiveButton("OK", null)
+                                            .show();
+                                } else {
+                                    // Not resolved yet, run again in 30 seconds
+                                    if (activeReportId != -1) {
+                                        pollingHandler.postDelayed(pollingRunnable, 30000);
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            // Retry in 30 seconds on parsing error
+                            if (activeReportId != -1) {
+                                pollingHandler.postDelayed(pollingRunnable, 30000);
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        // Retry in 30 seconds on network error
+                        if (activeReportId != -1) {
+                            pollingHandler.postDelayed(pollingRunnable, 30000);
+                        }
+                    }
+                });
+            }
+        };
+        pollingHandler.postDelayed(pollingRunnable, 30000);
+    }
+
+    private void stopPolling() {
+        activeReportId = -1;
+        if (pollingRunnable != null) {
+            pollingHandler.removeCallbacks(pollingRunnable);
+            pollingRunnable = null;
+        }
     }
 }

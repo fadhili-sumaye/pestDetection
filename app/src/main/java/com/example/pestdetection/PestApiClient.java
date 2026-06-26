@@ -28,7 +28,7 @@ public final class PestApiClient {
     }
 
     public interface PredictCallback {
-        void onSuccess(String pest, double confidence, String treatment);
+        void onSuccess(String pest, double confidence, String treatment, int reportId);
         void onError(String message);
     }
 
@@ -82,9 +82,10 @@ public final class PestApiClient {
         });
     }
 
-    public void predict(String predictUrl, byte[] imageBytes, PredictCallback callback) {
+    public void predict(String predictUrl, String deviceId, byte[] imageBytes, PredictCallback callback) {
         RequestBody requestBody = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
+                .addFormDataPart("device_id", deviceId)
                 .addFormDataPart("image", "image.jpg", RequestBody.create(imageBytes, IMAGE_MEDIA_TYPE))
                 .build();
 
@@ -124,7 +125,8 @@ public final class PestApiClient {
                     String pest = json.optString("pest_detected", "Unknown");
                     double conf = json.optDouble("confidence", 0.0);
                     String treatment = json.optString("treatment", "No advice available.");
-                    post(() -> callback.onSuccess(pest, conf, treatment));
+                    int reportId = json.optInt("report_id", -1);
+                    post(() -> callback.onSuccess(pest, conf, treatment, reportId));
                 } catch (Exception e) {
                     post(() -> callback.onError("Invalid response: " + body));
                 }
@@ -164,7 +166,7 @@ public final class PestApiClient {
                 try {
                     JSONObject json = new JSONObject(body);
                     String message = json.optString("message", "Success");
-                    post(() -> callback.onSuccess("Success", 0.0, message));
+                    post(() -> callback.onSuccess("Success", 0.0, message, -1));
                 } catch (Exception e) {
                     post(() -> callback.onError("Invalid response: " + body));
                 }

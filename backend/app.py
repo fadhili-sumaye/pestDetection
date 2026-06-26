@@ -279,7 +279,8 @@ def health(request: Request):
 @app.post("/predict")
 async def predict(
     request: Request,
-    image: UploadFile = File(...)
+    image: UploadFile = File(...),
+    device_id: Optional[str] = Form(None)
 ):
     # Resolve real client IP address behind reverse proxies
     ip = "unknown"
@@ -378,7 +379,8 @@ async def predict(
 
     if HAS_YOLO:
         try:
-            results = model.predict(source=img, save=False, conf=0.4)
+            # Run with a lower confidence threshold of 0.20 to identify potential unrecognized pests
+            results = model.predict(source=img, save=False, conf=0.20)
 
             detections = []
             for r in results:
@@ -402,6 +404,9 @@ async def predict(
                         "treatment": treatment,
                     })
 
+            # Sort by confidence descending
+            detections.sort(key=lambda x: x["confidence"], reverse=True)
+
             if not detections:
                 log_details = json.dumps({"pest": "None", "confidence": 0.0, "filename": image.filename})
                 log_audit("anonymous", "/predict", "success", log_details, ip)
@@ -413,25 +418,88 @@ async def predict(
                     "message": "No pests detected",
                 }
 
-            log_details = json.dumps({
-                "pest": detections[0]["pest_detected"],
-                "confidence": detections[0]["confidence"],
-                "filename": image.filename
-            })
-            log_audit("anonymous", "/predict", "success", log_details, ip)
+            best_det = detections[0]
+            best_conf = best_det["confidence"]
 
-            return {
-                "status": "success",
-                "pest_detected": detections[0]["pest_detected"],
-                "confidence": detections[0]["confidence"],
-                "treatment": detections[0]["treatment"],
-                "message": f"Detected {len(detections)} pests",
-                "all_detections": detections,
-            }
+            if best_conf >= 0.40:
+                # Normal high confidence detection
+                log_details = json.dumps({
+                    "pest": best_det["pest_detected"],
+                    "confidence": best_det["confidence"],
+                    "filename": image.filename
+                })
+                log_audit("anonymous", "/predict", "success", log_details, ip)
+
+                # Filter detections >= 0.40 for backward compatibility
+                filtered_detections = [
+                    {
+                        "pest_detected": d["pest_detected"],
+                        "confidence": d["confidence"],
+                        "treatment": d["treatment"]
+                    }
+                    for d in detections if d["confidence"] >= 0.40
+                ]
+
+                return {
+                    "status": "success",
+                    "pest_detected": best_det["pest_detected"],
+                    "confidence": best_det["confidence"],
+                    "treatment": best_det["treatment"],
+                    "message": f"Detected {len(filtered_detections)} pests",
+                    "all_detections": filtered_detections,
+                }
+            else:
+                # Low confidence (0.20 <= best_conf < 0.40) -> Auto-report as Unrecognized Pest
+                dev_id = device_id if device_id else "unknown_device"
+                
+                # Save the image to the unrecognized folder
+                unrecognized_dir = BASE_DIR / "uploads" / "unrecognized"
+                unrecognized_dir.mkdir(parents=True, exist_ok=True)
+                
+                ext = image.filename.rsplit(".", 1)[1].lower() if "." in image.filename else "jpg"
+                filename = f"{dev_id}_{int(time.time())}.{ext}"
+                file_path = unrecognized_dir / filename
+                
+                with open(file_path, "wb") as f:
+                    f.write(contents)
+                
+                # Insert into DB
+                report_id = None
+                try:
+                    conn = sqlite3.connect(str(DB_FILE), timeout=30.0)
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "INSERT INTO unrecognized_reports (device_id, image_path) VALUES (?, ?)",
+                        (dev_id, filename)
+                    )
+                    report_id = cursor.lastrowid
+                    conn.commit()
+                    conn.close()
+                except Exception as db_ex:
+                    print(f"Error saving auto-reported unrecognized pest: {db_ex}")
+
+                log_details = json.dumps({
+                    "pest": "Pest Not Recognized",
+                    "confidence": best_conf,
+                    "filename": image.filename,
+                    "report_id": report_id
+                })
+                log_audit("anonymous", "/predict", "unrecognized-pest", log_details, ip)
+
+                return {
+                    "status": "success",
+                    "pest_detected": "Pest Not Recognized",
+                    "confidence": best_conf,
+                    "treatment": "We couldn't identify this pest right now. Our experts are looking into it. Please wait for a while; we will notify you as soon as the results are available.",
+                    "report_id": report_id,
+                    "message": "Pest detected with low confidence, auto-reported for admin resolution."
+                }
+
         except Exception as e:
             log_audit("anonymous", "/predict", "error", f"YOLO Inference error: {str(e)}", ip)
             raise HTTPException(status_code=500, detail=f"Inference error: {str(e)}")
     else:
+        # Fallback Mock Mode logic
         log_details = json.dumps({"pest": "Aphids (Mock)", "confidence": 0.95, "filename": image.filename})
         log_audit("anonymous", "/predict", "success", log_details, ip)
         return {
