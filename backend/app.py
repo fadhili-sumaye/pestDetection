@@ -172,28 +172,26 @@ def init_model():
     try:
         from ultralytics import YOLO
 
+        if MODEL_FILE.exists():
+            model = YOLO(str(MODEL_FILE))
+            HAS_YOLO = True
+            print(f"Success: Loaded Cereal Pests custom YOLO model from {MODEL_FILE} ({len(model.names)} classes)")
+            return
+
         if MODEL_IP102_FILE.exists():
             model = YOLO(str(MODEL_IP102_FILE))
             HAS_YOLO = True
             print(f"Success: Loaded IP102 YOLO model from {MODEL_IP102_FILE} ({len(model.names)} classes)")
             return
 
-        loaded_fallback = False
-        if MODEL_FILE.exists():
-            model = YOLO(str(MODEL_FILE))
+        fallback_path = Path(r"C:\Users\fadhi\runs\detect\train-3\weights\best.pt")
+        if fallback_path.exists():
+            model = YOLO(str(fallback_path))
             HAS_YOLO = True
-            print(f"Success: Loaded fallback 10-pest YOLO model from {MODEL_FILE} ({len(model.names)} classes)")
-            loaded_fallback = True
+            print(f"Success: Loaded fallback YOLO model from {fallback_path} ({len(model.names)} classes)")
         else:
-            fallback_path = Path(r"C:\Users\fadhi\runs\detect\train-3\weights\best.pt")
-            if fallback_path.exists():
-                model = YOLO(str(fallback_path))
-                HAS_YOLO = True
-                print(f"Success: Loaded fallback YOLO model from {fallback_path} ({len(model.names)} classes)")
-                loaded_fallback = True
-
-        print("IP102 model is missing. Initiating background download...")
-        threading.Thread(target=download_ip102_model, daemon=True).start()
+            print("Model files missing. Initiating background download...")
+            threading.Thread(target=download_ip102_model, daemon=True).start()
     except Exception as e:
         if not HAS_YOLO:
             HAS_YOLO = False
