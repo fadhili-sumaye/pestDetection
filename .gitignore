@@ -29,8 +29,8 @@ backend/uploads/*
 # Large model weights (.pt files should not be stored in Git)
 **/*.pt
 **/*.tmp
-backend/best_ip102.pt
-backend/best_cereal.pt
+!backend/best_ip102.pt
+!backend/best_cereal.pt
 
 # Scratch files & local developer shortcuts
 scratch/
