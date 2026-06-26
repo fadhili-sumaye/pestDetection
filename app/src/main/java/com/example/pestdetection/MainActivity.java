@@ -578,8 +578,8 @@ public class MainActivity extends AppCompatActivity {
                     JSONArray reports = json.optJSONArray("reports");
                     if (reports == null || reports.length() == 0) {
                         new AlertDialog.Builder(MainActivity.this)
-                                .setTitle("My Submissions")
-                                .setMessage("You have not submitted any unrecognized pests yet.")
+                                .setTitle("Expert Review")
+                                .setMessage("You have not submitted any unrecognized pests for expert review yet.")
                                 .setPositiveButton("Close", null)
                                 .show();
                         return;
@@ -620,7 +620,7 @@ public class MainActivity extends AppCompatActivity {
                     sv.addView(tv);
 
                     new AlertDialog.Builder(MainActivity.this)
-                            .setTitle("My Submissions")
+                            .setTitle("Expert Review")
                             .setView(sv)
                             .setPositiveButton("Close", null)
                             .show();
