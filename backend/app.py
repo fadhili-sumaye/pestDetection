@@ -172,16 +172,16 @@ def init_model():
     try:
         from ultralytics import YOLO
 
-        if MODEL_FILE.exists():
-            model = YOLO(str(MODEL_FILE))
-            HAS_YOLO = True
-            print(f"Success: Loaded Cereal Pests custom YOLO model from {MODEL_FILE} ({len(model.names)} classes)")
-            return
-
         if MODEL_IP102_FILE.exists():
             model = YOLO(str(MODEL_IP102_FILE))
             HAS_YOLO = True
             print(f"Success: Loaded IP102 YOLO model from {MODEL_IP102_FILE} ({len(model.names)} classes)")
+            return
+
+        if MODEL_FILE.exists():
+            model = YOLO(str(MODEL_FILE))
+            HAS_YOLO = True
+            print(f"Success: Loaded Cereal Pests custom YOLO model from {MODEL_FILE} ({len(model.names)} classes)")
             return
 
         fallback_path = Path(r"C:\Users\fadhi\runs\detect\train-3\weights\best.pt")
