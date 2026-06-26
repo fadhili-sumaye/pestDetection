@@ -8,7 +8,12 @@ import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.provider.Settings;
+import android.text.Html;
 import android.widget.*;
+import androidx.appcompat.app.AlertDialog;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -37,6 +42,7 @@ public class MainActivity extends AppCompatActivity {
     View loadingOverlay;
     ProgressBar progressBar;
     Button btnSelect, btnCamera, btnUpload;
+    Button btnMySubmissions, btnReportUnrecognized;
     View resultCard;
     View settingsCard;
     int titleClickCount = 0;
@@ -86,6 +92,8 @@ public class MainActivity extends AppCompatActivity {
         btnSelect = findViewById(R.id.btnSelect);
         btnCamera = findViewById(R.id.btnCamera);
         btnUpload = findViewById(R.id.btnUpload);
+        btnMySubmissions = findViewById(R.id.btnMySubmissions);
+        btnReportUnrecognized = findViewById(R.id.btnReportUnrecognized);
         resultCard = findViewById(R.id.resultCard);
         settingsCard = findViewById(R.id.settingsCard);
 
@@ -140,9 +148,40 @@ public class MainActivity extends AppCompatActivity {
         btnSelect.setOnClickListener(v -> openGallery());
         btnCamera.setOnClickListener(v -> openCamera());
         btnUpload.setOnClickListener(v -> uploadImage());
+        if (btnMySubmissions != null) {
+            btnMySubmissions.setOnClickListener(v -> showMySubmissions());
+        }
+        if (btnReportUnrecognized != null) {
+            btnReportUnrecognized.setOnClickListener(v -> reportUnrecognizedPest());
+        }
 
         registerNetworkMonitor();
         checkBackendConnection();
+
+        if (savedInstanceState != null) {
+            String uriStr = savedInstanceState.getString("image_uri");
+            if (uriStr != null) {
+                imageUri = Uri.parse(uriStr);
+                if (imageView != null) {
+                    imageView.setImageURI(imageUri);
+                }
+                if (btnUpload != null) {
+                    btnUpload.setEnabled(true);
+                }
+            }
+            String resText = savedInstanceState.getString("result_text");
+            if (resText != null && resultText != null) {
+                resultText.setText(resText);
+            }
+            String treatText = savedInstanceState.getString("treatment_text");
+            if (treatText != null && treatmentText != null) {
+                treatmentText.setText(treatText);
+            }
+            int cardVis = savedInstanceState.getInt("result_card_visibility", View.GONE);
+            if (resultCard != null) {
+                resultCard.setVisibility(cardVis);
+            }
+        }
     }
 
     @Override
@@ -151,32 +190,6 @@ public class MainActivity extends AppCompatActivity {
         checkBackendConnection();
     }
 
-    @Override
-    protected void onStop() {
-        super.onStop();
-        if (imageView != null) {
-            imageView.setImageResource(R.mipmap.ic_launcher);
-        }
-        if (btnUpload != null) {
-            btnUpload.setEnabled(false);
-        }
-        if (progressBar != null) {
-            progressBar.setVisibility(View.GONE);
-        }
-        if (loadingOverlay != null) {
-            loadingOverlay.setVisibility(View.GONE);
-        }
-        if (resultCard != null) {
-            resultCard.setVisibility(View.GONE);
-        }
-        if (resultText != null) {
-            resultText.setText("Waiting for scan...");
-        }
-        if (treatmentText != null) {
-            treatmentText.setText("N/A");
-        }
-        imageUri = null;
-    }
 
     @Override
     protected void onDestroy() {
@@ -343,8 +356,19 @@ public class MainActivity extends AppCompatActivity {
             PestApiClient.getInstance().predict(serverUrl, imageBytes, new PestApiClient.PredictCallback() {
                 @Override
                 public void onSuccess(String pest, double confidence, String treatment) {
-                    resultText.setText(pest + " (" + (int) (confidence * 100) + "%)");
-                    treatmentText.setText(treatment);
+                    if ("Invalid Image".equalsIgnoreCase(pest)) {
+                        resultText.setText("Invalid Image");
+                        treatmentText.setText("This is not a pest. Please select or capture a crop leaf or pest for detection.");
+                        if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.GONE);
+                    } else if ("None".equalsIgnoreCase(pest)) {
+                        resultText.setText("No Pests Detected");
+                        treatmentText.setText(treatment);
+                        if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.VISIBLE);
+                    } else {
+                        resultText.setText(pest + " (" + (int) (confidence * 100) + "%)");
+                        treatmentText.setText(treatment);
+                        if (btnReportUnrecognized != null) btnReportUnrecognized.setVisibility(View.VISIBLE);
+                    }
                     updateConnectionStatus(true, "Connected");
 
                     // Hide loaders and re-enable buttons
@@ -429,5 +453,165 @@ public class MainActivity extends AppCompatActivity {
         byte[] bytes = outputStream.toByteArray();
         bitmap.recycle();
         return bytes;
+    }
+
+    @Override
+    protected void onSaveInstanceState(android.os.Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (imageUri != null) {
+            outState.putString("image_uri", imageUri.toString());
+        }
+        if (resultText != null && !resultText.getText().toString().equals("Waiting for scan...")) {
+            outState.putString("result_text", resultText.getText().toString());
+        }
+        if (treatmentText != null && !treatmentText.getText().toString().equals("N/A")) {
+            outState.putString("treatment_text", treatmentText.getText().toString());
+        }
+        if (resultCard != null) {
+            outState.putInt("result_card_visibility", resultCard.getVisibility());
+        }
+    }
+
+    private void reportUnrecognizedPest() {
+        if (imageUri == null) {
+            Toast.makeText(this, "Please capture or select an image first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String serverUrl = etServerUrl.getText().toString().trim();
+        String reportUrl;
+        if (serverUrl.endsWith("/predict")) {
+            reportUrl = serverUrl.replace("/predict", "/predict/report-unrecognized");
+        } else {
+            reportUrl = serverUrl + "/predict/report-unrecognized";
+        }
+
+        byte[] imageBytes;
+        try {
+            imageBytes = getScaledAndCompressedImage(imageUri);
+        } catch (Exception e) {
+            Toast.makeText(this, "Failed to process image: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
+        if (loadingOverlay != null) loadingOverlay.setVisibility(View.VISIBLE);
+        if (btnReportUnrecognized != null) btnReportUnrecognized.setEnabled(false);
+
+        String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+
+        PestApiClient.getInstance().reportUnrecognized(reportUrl, deviceId, imageBytes, new PestApiClient.PredictCallback() {
+            @Override
+            public void onSuccess(String pest, double confidence, String message) {
+                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+                if (btnReportUnrecognized != null) {
+                    btnReportUnrecognized.setEnabled(true);
+                    btnReportUnrecognized.setVisibility(View.GONE);
+                }
+
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Report Submitted!")
+                        .setMessage("Thank you! Our agricultural experts will analyze this unrecognized pest and update the diagnostic console.")
+                        .setPositiveButton("OK", null)
+                        .show();
+            }
+
+            @Override
+            public void onError(String error) {
+                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+                if (btnReportUnrecognized != null) btnReportUnrecognized.setEnabled(true);
+
+                Toast.makeText(MainActivity.this, "Submission failed: " + error, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void showMySubmissions() {
+        String serverUrl = etServerUrl.getText().toString().trim();
+        String statusUrl;
+        if (serverUrl.endsWith("/predict")) {
+            statusUrl = serverUrl.replace("/predict", "/reports/status");
+        } else {
+            statusUrl = serverUrl + "/reports/status";
+        }
+
+        if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
+        if (loadingOverlay != null) loadingOverlay.setVisibility(View.VISIBLE);
+
+        String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+
+        PestApiClient.getInstance().getReportsStatus(statusUrl, deviceId, new PestApiClient.ReportsCallback() {
+            @Override
+            public void onSuccess(String jsonResult) {
+                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+
+                try {
+                    JSONObject json = new JSONObject(jsonResult);
+                    JSONArray reports = json.optJSONArray("reports");
+                    if (reports == null || reports.length() == 0) {
+                        new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("My Submissions")
+                                .setMessage("You have not submitted any unrecognized pests yet.")
+                                .setPositiveButton("Close", null)
+                                .show();
+                        return;
+                    }
+
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < reports.length(); i++) {
+                        JSONObject r = reports.getJSONObject(i);
+                        String status = r.optString("status", "pending");
+                        String date = r.optString("created_at", "");
+                        
+                        sb.append("<font color='#2E7D32'><b>Submission #").append(r.optInt("id")).append("</b></font><br/>");
+                        sb.append("<b>Date:</b> ").append(date).append("<br/>");
+                        
+                        if ("resolved".equalsIgnoreCase(status)) {
+                            sb.append("<b>Status:</b> <font color='#10b981'><b>RESOLVED</b></font><br/>");
+                            sb.append("<b>Identified Pest:</b> ").append(r.optString("pest_name")).append("<br/>");
+                            sb.append("<b>Treatment Advice:</b> ").append(r.optString("treatment")).append("<br/>");
+                        } else {
+                            sb.append("<b>Status:</b> <font color='#f59e0b'><b>PENDING REVIEW</b></font><br/>");
+                            sb.append("Our experts are currently identifying this pest. Check back later.<br/>");
+                        }
+                        sb.append("<br/>----------------------------------------<br/><br/>");
+                    }
+
+                    TextView tv = new TextView(MainActivity.this);
+                    tv.setPadding(40, 40, 40, 40);
+                    tv.setTextSize(14);
+                    tv.setTextColor(getResources().getColor(android.R.color.black));
+                    
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                        tv.setText(Html.fromHtml(sb.toString(), Html.FROM_HTML_MODE_LEGACY));
+                    } else {
+                        tv.setText(Html.fromHtml(sb.toString()));
+                    }
+
+                    ScrollView sv = new ScrollView(MainActivity.this);
+                    sv.addView(tv);
+
+                    new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("My Submissions")
+                            .setView(sv)
+                            .setPositiveButton("Close", null)
+                            .show();
+
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Failed to parse history: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            }
+
+            @Override
+            public void onError(String error) {
+                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+
+                Toast.makeText(MainActivity.this, "Failed to fetch history: " + error, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 }

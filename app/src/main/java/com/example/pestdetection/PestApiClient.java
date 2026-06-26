@@ -32,6 +32,11 @@ public final class PestApiClient {
         void onError(String message);
     }
 
+    public interface ReportsCallback {
+        void onSuccess(String jsonResult);
+        void onError(String message);
+    }
+
     private static final MediaType IMAGE_MEDIA_TYPE = MediaType.parse("image/*");
     private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
     private static PestApiClient instance;
@@ -123,6 +128,76 @@ public final class PestApiClient {
                 } catch (Exception e) {
                     post(() -> callback.onError("Invalid response: " + body));
                 }
+            }
+        });
+    }
+
+    public void reportUnrecognized(String reportUrl, String deviceId, byte[] imageBytes, PredictCallback callback) {
+        RequestBody requestBody = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("device_id", deviceId)
+                .addFormDataPart("image", "unrecognized.jpg", RequestBody.create(imageBytes, IMAGE_MEDIA_TYPE))
+                .build();
+
+        Request request = new Request.Builder()
+                .url(reportUrl)
+                .post(requestBody)
+                .build();
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                final String message = e.getMessage() != null ? e.getMessage() : "Report submission failed";
+                post(() -> callback.onError(message));
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                String body = response.body() != null ? response.body().string() : "";
+
+                if (!response.isSuccessful()) {
+                    final String error = "Server error " + response.code() + (body.isEmpty() ? "" : ": " + body);
+                    post(() -> callback.onError(error));
+                    return;
+                }
+
+                try {
+                    JSONObject json = new JSONObject(body);
+                    String message = json.optString("message", "Success");
+                    post(() -> callback.onSuccess("Success", 0.0, message));
+                } catch (Exception e) {
+                    post(() -> callback.onError("Invalid response: " + body));
+                }
+            }
+        });
+    }
+
+    public void getReportsStatus(String statusUrl, String deviceId, ReportsCallback callback) {
+        String url = statusUrl + "?device_id=" + deviceId;
+
+        Request request = new Request.Builder()
+                .url(url)
+                .get()
+                .build();
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                final String message = e.getMessage() != null ? e.getMessage() : "Failed to fetch status";
+                post(() -> callback.onError(message));
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                String body = response.body() != null ? response.body().string() : "";
+
+                if (!response.isSuccessful()) {
+                    final String error = "Server error " + response.code();
+                    post(() -> callback.onError(error));
+                    return;
+                }
+
+                post(() -> callback.onSuccess(body));
             }
         });
     }

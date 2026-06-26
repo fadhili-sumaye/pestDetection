@@ -1,5 +1,5 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request, Form
+from fastapi.responses import PlainTextResponse, HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from pathlib import Path
@@ -7,6 +7,7 @@ import threading
 import time
 import urllib.request
 import sqlite3
+import ipaddress
 import json
 import io
 from PIL import Image
@@ -20,8 +21,12 @@ MODEL_IP102_FILE = BASE_DIR / "best_ip102.pt"
 IP102_URL = "https://huggingface.co/underdogquality/yolo11s-pest-detection/resolve/main/best.pt"
 
 def init_db():
-    conn = sqlite3.connect(str(DB_FILE))
+    conn = sqlite3.connect(str(DB_FILE), timeout=30.0)
     cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL;")
+    except Exception as e:
+        print(f"[DB] Warning: Failed to set WAL mode: {e}")
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,6 +36,17 @@ def init_db():
             status TEXT NOT NULL,
             details TEXT,
             ip_address TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS unrecognized_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            image_path TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            pest_name TEXT,
+            treatment TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
     conn.commit()
@@ -49,7 +65,7 @@ def init_db():
 
 def log_audit(username: Optional[str], endpoint: str, status: str, details: str, ip_address: str):
     try:
-        conn = sqlite3.connect(str(DB_FILE))
+        conn = sqlite3.connect(str(DB_FILE), timeout=30.0)
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO audit_logs (username, endpoint, status, details, ip_address) VALUES (?, ?, ?, ?, ?)",
@@ -81,6 +97,11 @@ request_history = defaultdict(list)
 model = None
 HAS_YOLO = False
 is_downloading = False
+
+classifier_model = None
+preprocess = None
+categories = None
+HAS_CLASSIFIER = False
 
 def download_ip102_model():
     global is_downloading, model, HAS_YOLO
@@ -132,7 +153,22 @@ def download_ip102_model():
     is_downloading = False
 
 def init_model():
-    global model, HAS_YOLO
+    global model, HAS_YOLO, classifier_model, preprocess, categories, HAS_CLASSIFIER
+    
+    # Initialize MobileNetV3 for out-of-domain checking
+    try:
+        from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
+        weights = MobileNet_V3_Small_Weights.DEFAULT
+        classifier_model = mobilenet_v3_small(weights=weights)
+        classifier_model.eval()
+        preprocess = weights.transforms()
+        categories = weights.meta["categories"]
+        HAS_CLASSIFIER = True
+        print("Success: Loaded MobileNetV3 classifier for unrelated image detection.")
+    except Exception as e:
+        HAS_CLASSIFIER = False
+        print(f"Warning: Failed to load MobileNetV3 classifier: {e}")
+
     try:
         from ultralytics import YOLO
 
@@ -247,10 +283,25 @@ async def predict(
     request: Request,
     image: UploadFile = File(...)
 ):
-    ip = request.client.host if request.client else "unknown"
+    # Resolve real client IP address behind reverse proxies
+    ip = "unknown"
+    if request.client:
+        ip = request.client.host
+    
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        ip = forwarded_for.split(",")[0].strip()
 
     # Rate limiting check (excludes development environments)
-    if ip not in ("127.0.0.1", "10.0.2.2", "localhost", "unknown"):
+    is_local = ip in ("localhost", "unknown")
+    if not is_local:
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+            is_local = ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local
+        except ValueError:
+            pass
+
+    if not is_local:
         now = time.time()
         request_history[ip] = [t for t in request_history[ip] if now - t < RATE_LIMIT_WINDOW]
         if len(request_history[ip]) >= RATE_LIMIT_MAX_REQUESTS:
@@ -279,6 +330,53 @@ async def predict(
     except Exception as e:
         log_audit("anonymous", "/predict", "error", f"Image parsing error: {str(e)}", ip)
         raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
+
+    # Check if the image is related to crops/plants/pests unconditionally
+    if HAS_CLASSIFIER and classifier_model:
+        try:
+            import torch
+            img_tensor = preprocess(img).unsqueeze(0)
+            with torch.no_grad():
+                outputs = classifier_model(img_tensor)
+                probs = torch.nn.functional.softmax(outputs[0], dim=0)
+                top5_indices = torch.topk(probs, 5).indices.tolist()
+                top5_names = [categories[idx] for idx in top5_indices]
+            
+            related_keywords = {
+                'leaf', 'plant', 'tree', 'flower', 'crop', 'insect', 'bug', 'spider', 'caterpillar', 
+                'moth', 'butterfly', 'grasshopper', 'beetle', 'cricket', 'ant', 'fly', 'wasp', 'bee', 
+                'aphid', 'weevil', 'locust', 'cicada', 'mantis', 'ladybug', 'mite', 'slug', 'snail', 
+                'worm', 'larva', 'pupa', 'grub', 'vegetable', 'fruit', 'cereal', 'grass', 'grain', 
+                'corn', 'maize', 'rice', 'wheat', 'barley', 'soil', 'ground', 'earth', 'dirt', 
+                'nature', 'field', 'farm', 'garden', 'agriculture', 'pest', 'fungus', 'rust', 
+                'rot', 'mildew', 'spot', 'blight', 'mold', 'banana', 'apple', 'orange', 'broccoli', 
+                'cabbage', 'tomato', 'potato', 'seed', 'sprout', 'stem', 'branch', 'root', 'wood',
+                'bark', 'forest', 'jungle', 'meadow', 'vegetation', 'flora', 'fauna', 'herb',
+                'conifer', 'fern', 'moss', 'lichen', 'shrub', 'bush', 'vine', 'foliage',
+                'lizard', 'snake', 'chameleon', 'gecko', 'walking stick', 'frog', 'toad', 'salamander',
+                'iguana', 'anole', 'dragon'
+            }
+            
+            is_related = False
+            for name in top5_names:
+                name_lower = name.lower()
+                if any(kw in name_lower for kw in related_keywords):
+                    is_related = True
+                    break
+            
+            if not is_related:
+                detected_obj = top5_names[0].replace("_", " ").title()
+                log_details = json.dumps({"pest": "Invalid Image", "detected": detected_obj, "filename": image.filename})
+                log_audit("anonymous", "/predict", "invalid-image", log_details, ip)
+                return {
+                    "status": "success",
+                    "pest_detected": "Invalid Image",
+                    "confidence": 0.0,
+                    "treatment": "Please upload a clear image of a crop leaf or pest.",
+                    "message": f"This does not look like a crop or pest image (detected: {detected_obj}).",
+                }
+        except Exception as ex:
+            print(f"Error running unrelated image validation: {ex}")
 
     if HAS_YOLO:
         try:
@@ -345,6 +443,148 @@ async def predict(
             "treatment": PEST_TREATMENT["aphids"],
             "message": "Detection completed successfully (Mock Mode)",
         }
+
+@app.post("/predict/report-unrecognized")
+async def report_unrecognized(
+    request: Request,
+    device_id: str = Form(...),
+    image: UploadFile = File(...)
+):
+    ip = "unknown"
+    if request.client:
+        ip = request.client.host
+    
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        ip = forwarded_for.split(",")[0].strip()
+
+    if not image.filename or not allowed_file(image.filename):
+        log_audit("anonymous", "/predict/report-unrecognized", "failed", "Invalid file type", ip)
+        raise HTTPException(status_code=400, detail="Invalid file type")
+        
+    try:
+        contents = await image.read()
+        if len(contents) > 10 * 1024 * 1024:
+            log_audit("anonymous", "/predict/report-unrecognized", "failed", "File too large", ip)
+            raise HTTPException(status_code=413, detail="File size exceeds the 10MB limit.")
+            
+        unrecognized_dir = BASE_DIR / "uploads" / "unrecognized"
+        unrecognized_dir.mkdir(parents=True, exist_ok=True)
+        
+        ext = image.filename.rsplit(".", 1)[1].lower()
+        filename = f"{device_id}_{int(time.time())}.{ext}"
+        file_path = unrecognized_dir / filename
+        
+        with open(file_path, "wb") as f:
+            f.write(contents)
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        log_audit("anonymous", "/predict/report-unrecognized", "error", f"Save error: {e}", ip)
+        raise HTTPException(status_code=500, detail=f"Failed to save image: {e}")
+        
+    try:
+        conn = sqlite3.connect(str(DB_FILE), timeout=30.0)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO unrecognized_reports (device_id, image_path) VALUES (?, ?)",
+            (device_id, filename)
+        )
+        conn.commit()
+        conn.close()
+        
+        log_audit("anonymous", "/predict/report-unrecognized", "success", f"Report created: {filename}", ip)
+        return {"status": "success", "message": "Report submitted successfully"}
+    except Exception as e:
+        log_audit("anonymous", "/predict/report-unrecognized", "error", f"Database error: {e}", ip)
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+@app.get("/reports/status")
+def get_reports_status(device_id: str):
+    try:
+        conn = sqlite3.connect(str(DB_FILE), timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, image_path, status, pest_name, treatment, created_at FROM unrecognized_reports WHERE device_id = ? ORDER BY created_at DESC",
+            (device_id,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        
+        reports = []
+        for r in rows:
+            reports.append({
+                "id": r["id"],
+                "image_path": r["image_path"],
+                "status": r["status"],
+                "pest_name": r["pest_name"] if r["pest_name"] else "",
+                "treatment": r["treatment"] if r["treatment"] else "",
+                "created_at": r["created_at"]
+            })
+        return {"status": "success", "reports": reports}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_dashboard():
+    admin_html_file = BASE_DIR / "admin.html"
+    if admin_html_file.exists():
+        with open(admin_html_file, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return HTMLResponse(content="<h1>Admin Dashboard Template Missing</h1>")
+
+@app.get("/admin/api/reports")
+def admin_get_reports():
+    try:
+        conn = sqlite3.connect(str(DB_FILE), timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, device_id, image_path, status, pest_name, treatment, created_at FROM unrecognized_reports ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        reports = []
+        for r in rows:
+            reports.append({
+                "id": r["id"],
+                "device_id": r["device_id"],
+                "image_path": r["image_path"],
+                "status": r["status"],
+                "pest_name": r["pest_name"] if r["pest_name"] else "",
+                "treatment": r["treatment"] if r["treatment"] else "",
+                "created_at": r["created_at"]
+            })
+        return {"status": "success", "reports": reports}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+@app.post("/admin/api/resolve/{report_id}")
+def admin_resolve_report(
+    report_id: int,
+    pest_name: str = Form(...),
+    treatment: str = Form(...)
+):
+    try:
+        conn = sqlite3.connect(str(DB_FILE), timeout=30.0)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE unrecognized_reports SET status = 'resolved', pest_name = ?, treatment = ? WHERE id = ?",
+            (pest_name, treatment, report_id)
+        )
+        conn.commit()
+        conn.close()
+        return {"status": "success", "message": f"Report {report_id} resolved successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+@app.get("/admin/image/{filename}")
+def admin_serve_image(filename: str):
+    file_path = BASE_DIR / "uploads" / "unrecognized" / filename
+    if file_path.exists():
+        return FileResponse(str(file_path))
+    raise HTTPException(status_code=404, detail="Image not found")
+
 
 if __name__ == "__main__":
     import uvicorn
