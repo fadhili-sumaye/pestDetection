@@ -178,20 +178,24 @@ def init_model():
             print(f"Success: Loaded IP102 YOLO model from {MODEL_IP102_FILE} ({len(model.names)} classes)")
             return
 
+        # Start downloading IP102 in the background since it does not exist
+        print("IP102 Model file missing. Initiating background download...")
+        threading.Thread(target=download_ip102_model, daemon=True).start()
+
+        # Load cereal or fallback models as temporary fallback while downloading
         if MODEL_FILE.exists():
             model = YOLO(str(MODEL_FILE))
             HAS_YOLO = True
-            print(f"Success: Loaded Cereal Pests custom YOLO model from {MODEL_FILE} ({len(model.names)} classes)")
+            print(f"Success: Loaded Cereal Pests custom YOLO model as temporary fallback from {MODEL_FILE} ({len(model.names)} classes)")
             return
 
         fallback_path = Path(r"C:\Users\fadhi\runs\detect\train-3\weights\best.pt")
         if fallback_path.exists():
             model = YOLO(str(fallback_path))
             HAS_YOLO = True
-            print(f"Success: Loaded fallback YOLO model from {fallback_path} ({len(model.names)} classes)")
+            print(f"Success: Loaded fallback YOLO model as temporary fallback from {fallback_path} ({len(model.names)} classes)")
         else:
-            print("Model files missing. Initiating background download...")
-            threading.Thread(target=download_ip102_model, daemon=True).start()
+            print("No fallback model available. Server will run in Mock Mode until download finishes.")
     except Exception as e:
         if not HAS_YOLO:
             HAS_YOLO = False
